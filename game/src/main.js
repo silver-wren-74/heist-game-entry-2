@@ -24,6 +24,15 @@ const status = document.getElementById('status');
 const SOUND_FOR_EVENT = { grab: playGrab, laser: playLaser, alarm: playAlarm, escape: playEscape };
 let previous = performance.now();
 
+/** The line screen readers announce: where the job stands. */
+function describeStatus() {
+  if (game.phase === 'play') {
+    const left = game.loots.filter((l) => !l.taken).length;
+    return `${game.room.name}: alarm ${Math.floor(game.alarm)} percent, ${left} pieces of loot left.`;
+  }
+  return game.notice;
+}
+
 function loop(now) {
   const dt = Math.min(0.05, (now - previous) / 1000);
   previous = now;
@@ -34,9 +43,7 @@ function loop(now) {
       if (sound) sound();
     }
     game.events.length = 0;
-    status.textContent = game.phase === 'play'
-      ? `${game.room.name}: alarm ${Math.floor(game.alarm)} percent, ${game.loots.filter((l) => !l.taken).length} pieces of loot left.`
-      : game.notice;
+    status.textContent = describeStatus();
   }
   draw(ctx, game, now);
   requestAnimationFrame(loop);

@@ -23,10 +23,10 @@ export function wrapAngle(a) {
 function segmentsCross(ax, ay, bx, by, cx, cy, dx, dy) {
   const den = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx);
   if (den === 0) return null;
-  const alongFirst = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / den;
-  const alongSecond = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / den;
-  if (alongFirst < 0 || alongFirst > 1 || alongSecond < 0 || alongSecond > 1) return null;
-  return alongFirst;
+  const alongAB = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / den;
+  const alongCD = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / den;
+  const crosses = alongAB >= 0 && alongAB <= 1 && alongCD >= 0 && alongCD <= 1;
+  return crosses ? alongAB : null;
 }
 
 /** True when any wall stands between the two points. */
@@ -121,14 +121,14 @@ export class Guard extends Watcher {
     this.angle = Math.atan2(ty - this.y, tx - this.x);
   }
 
-  step(dt) {
-    this.clock += dt;
-    if (this.waiting > 0) {
-      // Paused at a corner: scan a little, side to side.
-      this.waiting -= dt;
-      this.angle += Math.sin(this.clock * 1.6) * 0.0035;
-      return;
-    }
+  /** Paused at a corner: scan a little, side to side. */
+  waitAndScan(dt) {
+    this.waiting -= dt;
+    this.angle += Math.sin(this.clock * 1.6) * 0.0035;
+  }
+
+  /** Walk toward the current waypoint, turning to face it. */
+  walkToward(dt) {
     const [tx, ty] = this.route[this.target];
     const dx = tx - this.x;
     const dy = ty - this.y;
@@ -139,12 +139,18 @@ export class Guard extends Watcher {
       this.y = ty;
       this.target = (this.target + 1) % this.route.length;
       this.waiting = this.hold;
-    } else {
-      this.x += (dx / dist) * stride;
-      this.y += (dy / dist) * stride;
-      const facing = Math.atan2(dy, dx);
-      this.angle += wrapAngle(facing - this.angle) * Math.min(1, dt * 7);
+      return;
     }
+    this.x += (dx / dist) * stride;
+    this.y += (dy / dist) * stride;
+    const facing = Math.atan2(dy, dx);
+    this.angle += wrapAngle(facing - this.angle) * Math.min(1, dt * 7);
+  }
+
+  step(dt) {
+    this.clock += dt;
+    if (this.waiting > 0) this.waitAndScan(dt);
+    else this.walkToward(dt);
   }
 }
 

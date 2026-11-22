@@ -23,16 +23,17 @@ function note(freq, delay, length, wave, volume, glideTo) {
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   const start = ctx.currentTime + delay;
+  const end = start + length;
   osc.type = wave;
   osc.frequency.setValueAtTime(freq, start);
-  if (glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, start + length);
+  if (glideTo) osc.frequency.exponentialRampToValueAtTime(glideTo, end);
   gain.gain.setValueAtTime(0.0001, start);
   gain.gain.exponentialRampToValueAtTime(volume, start + 0.015);
-  gain.gain.exponentialRampToValueAtTime(0.0001, start + length);
+  gain.gain.exponentialRampToValueAtTime(0.0001, end);
   osc.connect(gain);
   gain.connect(ctx.destination);
   osc.start(start);
-  osc.stop(start + length + 0.05);
+  osc.stop(end + 0.05);
 }
 
 /** Loot bagged: a quick golden sparkle. */

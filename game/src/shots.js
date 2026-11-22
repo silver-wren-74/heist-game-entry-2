@@ -24,7 +24,7 @@ export function stageShot(game, params) {
     game.thief.y = 330;
     game.thief.angle = 0.15;
     game.alarm = 42;
-    game.notice = 'Cross to the sapphire — mind the crossing patrol.';
+    game.notice = 'Cross for the sapphire — mind the crossing patrol.';
     return true;
   }
 
@@ -42,7 +42,7 @@ export function stageShot(game, params) {
     game.alarm = 67;
     game.bagged = 1;
     game.score = 150;
-    game.notice = 'Bagging the Golden Ledger… hold still.';
+    game.notice = 'Lifting the Golden Ledger… hold still.';
     return true;
   }
 

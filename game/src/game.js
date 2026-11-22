@@ -15,6 +15,8 @@ const GRAB_TIME = 1.15;
 const ALARM_DECAY = 10;
 const LASER_HIT = 30;
 const TOUCH_DIST = 23;
+const GUARD_FEED = 30;
+const CAMERA_FEED = 19;
 
 /** Does the circle at (cx, cy) with radius r overlap rectangle w? */
 function circleHitsRect(cx, cy, r, w) {
@@ -71,7 +73,7 @@ export class Game {
     this.elapsed = 0;
     this.loadRoom(0);
     this.phase = 'play';
-    this.notice = 'Bag the prize, then reach the van. Watch the alarm.';
+    this.notice = 'Bag the prize, then reach the van — and mind the alarm.';
   }
 
   hasPrize() {
@@ -85,21 +87,17 @@ export class Game {
 
   moveThief(dt) {
     const p = this.thief;
-    let mx = 0;
-    let my = 0;
-    if (this.keys.left) mx -= 1;
-    if (this.keys.right) mx += 1;
-    if (this.keys.up) my -= 1;
-    if (this.keys.down) my += 1;
-    p.moving = mx !== 0 || my !== 0;
+    const dx = (this.keys.right ? 1 : 0) - (this.keys.left ? 1 : 0);
+    const dy = (this.keys.down ? 1 : 0) - (this.keys.up ? 1 : 0);
+    p.moving = dx !== 0 || dy !== 0;
     if (!p.moving) return;
-    const len = Math.hypot(mx, my);
-    const vx = (mx / len) * WALK_SPEED * dt;
-    const vy = (my / len) * WALK_SPEED * dt;
-    p.angle = Math.atan2(my, mx);
+    const len = Math.hypot(dx, dy);
+    const stepX = (dx / len) * WALK_SPEED * dt;
+    const stepY = (dy / len) * WALK_SPEED * dt;
+    p.angle = Math.atan2(dy, dx);
     // Slide along walls: each axis is tried on its own.
-    if (!this.blockedAt(p.x + vx, p.y)) p.x += vx;
-    if (!this.blockedAt(p.x, p.y + vy)) p.y += vy;
+    if (!this.blockedAt(p.x + stepX, p.y)) p.x += stepX;
+    if (!this.blockedAt(p.x, p.y + stepY)) p.y += stepY;
     p.x = Math.max(THIEF_R, Math.min(FIELD_W - THIEF_R, p.x));
     p.y = Math.max(THIEF_R, Math.min(FIELD_H - THIEF_R, p.y));
   }
@@ -117,8 +115,8 @@ export class Game {
           this.score += loot.value;
           this.events.push('grab');
           this.notice = loot.prize
-            ? `${loot.name} bagged! Get to the van.`
-            : `${loot.name} bagged (+${loot.value}).`;
+            ? `${loot.name} is in the sack! Get to the van.`
+            : `${loot.name} in the sack (+${loot.value}).`;
         }
       } else {
         loot.progress = Math.max(0, loot.progress - dt * 2.5);
@@ -138,37 +136,55 @@ export class Game {
         this.alarm = Math.min(100, this.alarm + LASER_HIT);
         beam.cool = 1.6;
         this.events.push('laser');
-        this.notice = 'A laser beam breaks — the alarm jumps!';
+        this.notice = 'A laser beam snaps — the alarm jumps!';
       }
     }
   }
 
-  /** Every watcher that can see the thief feeds the alarm; else it drains. */
-  feedAlarm(dt) {
+  /** What the guards add to the alarm this step; a touch ends the job. */
+  watchGuards() {
     const p = this.thief;
-    this.spotted = false;
     let feed = 0;
     for (const guard of this.guards) {
       const dist = Math.hypot(guard.x - p.x, guard.y - p.y);
       if (dist < TOUCH_DIST) {
         this.caught();
-        return;
+        return -1;
       }
       guard.seeing = guard.sees(p.x, p.y, this.room.walls);
       if (guard.seeing) {
         this.spotted = true;
-        feed += 30 * (1.15 - Math.min(1, dist / guard.range));
+        feed += GUARD_FEED * (1.15 - Math.min(1, dist / guard.range));
       }
     }
+    return feed;
+  }
+
+  /** What the cameras add to the alarm this step. */
+  watchCameras() {
+    const p = this.thief;
+    let feed = 0;
     for (const camera of this.cameras) {
       camera.seeing = camera.sees(p.x, p.y, this.room.walls);
       if (camera.seeing) {
         this.spotted = true;
-        feed += 19;
+        feed += CAMERA_FEED;
       }
     }
-    if (this.spotted) this.alarm = Math.min(100, this.alarm + feed * dt);
-    else this.alarm = Math.max(0, this.alarm - ALARM_DECAY * dt);
+    return feed;
+  }
+
+  /** Every watcher that can see the thief feeds the alarm; else it drains. */
+  feedAlarm(dt) {
+    this.spotted = false;
+    const guardFeed = this.watchGuards();
+    if (guardFeed < 0) return; // caught by a guard's touch
+    const feed = guardFeed + this.watchCameras();
+    if (this.spotted) {
+      this.alarm = Math.min(100, this.alarm + feed * dt);
+    } else {
+      this.alarm = Math.max(0, this.alarm - ALARM_DECAY * dt);
+    }
     if (this.alarm >= 100) this.caught();
   }
 
@@ -181,7 +197,7 @@ export class Game {
       this.phase = this.roomIndex === ROOMS.length - 1 ? 'clear' : 'won';
       this.notice = '';
     } else {
-      this.notice = 'The driver shakes his head — the prize is still inside.';
+      this.notice = 'The driver waves you off — the prize is still inside.';
     }
   }
 
@@ -210,11 +226,11 @@ export class Game {
     } else if (this.phase === 'caught') {
       this.loadRoom(this.roomIndex);
       this.phase = 'play';
-      this.notice = 'Once more, quieter. The room has reset.';
+      this.notice = 'Again, quieter this time. The room has reset.';
     } else if (this.phase === 'won') {
       this.loadRoom(this.roomIndex + 1);
       this.phase = 'play';
-      this.notice = `${this.room.name}. New room, new prize.`;
+      this.notice = `${this.room.name} — a new room, a new prize.`;
     } else if (this.phase === 'clear') {
       this.start();
     }

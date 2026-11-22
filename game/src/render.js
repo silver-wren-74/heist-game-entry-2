@@ -12,10 +12,11 @@ export const VIEW_W = 1280;
 export const VIEW_H = 800;
 export const HUD_H = 92;
 
-const FONT = 'system-ui, sans-serif';
+const FAMILY = 'system-ui, sans-serif';
 
 /** Fill a polygon given as [x, y] points. */
-function poly(ctx, points) {
+function fillPoly(ctx, points, style) {
+  ctx.fillStyle = style;
   ctx.beginPath();
   ctx.moveTo(points[0][0], points[0][1]);
   for (let i = 1; i < points.length; i++) ctx.lineTo(points[i][0], points[i][1]);
@@ -23,13 +24,24 @@ function poly(ctx, points) {
   ctx.fill();
 }
 
+function setFont(ctx, weight, size) {
+  ctx.font = `${weight} ${size}px ${FAMILY}`;
+}
+
+/** One watcher's cone, painted in the given colour. */
+function fillCone(ctx, watcher, walls, bounds, style) {
+  fillPoly(ctx, watcher.cone(walls, bounds), style);
+}
+
 function paintFloor(ctx) {
   // A marble checkerboard, kept quiet so the cones read clearly.
   const tile = 64;
-  for (let row = 0; row < FIELD_H / tile; row++) {
-    for (let col = 0; col < FIELD_W / tile; col++) {
-      ctx.fillStyle = (row + col) % 2 === 0 ? '#c7cfd6' : '#bcc5cd';
-      ctx.fillRect(col * tile, row * tile, tile, tile);
+  const cols = FIELD_W / tile;
+  const rows = FIELD_H / tile;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      ctx.fillStyle = (r + c) % 2 ? '#bcc5cd' : '#c7cfd6';
+      ctx.fillRect(c * tile, r * tile, tile, tile);
     }
   }
   // The red carpet cross the guests are meant to walk.
@@ -43,119 +55,97 @@ function paintFloor(ctx) {
 }
 
 function paintWall(ctx, w, index) {
-  switch (w.kind) {
-    case 'case': {
-      ctx.fillStyle = '#5d4028';
-      ctx.fillRect(w.x, w.y, w.w, w.h);
-      ctx.fillStyle = 'rgba(200, 228, 238, 0.9)';
-      ctx.fillRect(w.x + 7, w.y + 7, w.w - 14, w.h - 14);
-      ctx.fillStyle = ['#8e44ad', '#2471a3', '#b7950b'][index % 3];
-      ctx.beginPath();
-      ctx.arc(w.x + w.w / 2, w.y + w.h / 2, 10, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = '#37414d';
-      ctx.fillRect(w.x + w.w / 2 - 13, w.y + w.h - 16, 26, 5);
-      break;
+  if (w.kind === 'case') {
+    ctx.fillStyle = '#5d4028';
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.fillStyle = 'rgba(200, 228, 238, 0.9)';
+    ctx.fillRect(w.x + 7, w.y + 7, w.w - 14, w.h - 14);
+    ctx.fillStyle = ['#8e44ad', '#2471a3', '#b7950b'][index % 3];
+    ctx.beginPath();
+    ctx.arc(w.x + w.w / 2, w.y + w.h / 2, 10, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#37414d';
+    ctx.fillRect(w.x + w.w / 2 - 13, w.y + w.h - 16, 26, 5);
+  } else if (w.kind === 'counter') {
+    ctx.fillStyle = '#2e5d50';
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.fillStyle = '#c9a227';
+    ctx.fillRect(w.x, w.y + 6, w.w, 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.13)';
+    for (let x = w.x + 18; x < w.x + w.w - 10; x += 36) {
+      ctx.fillRect(x, w.y + 16, 20, w.h - 26);
     }
-    case 'counter': {
-      ctx.fillStyle = '#2e5d50';
-      ctx.fillRect(w.x, w.y, w.w, w.h);
-      ctx.fillStyle = '#c9a227';
-      ctx.fillRect(w.x, w.y + 6, w.w, 4);
-      ctx.fillStyle = 'rgba(255,255,255,0.13)';
-      for (let x = w.x + 18; x < w.x + w.w - 10; x += 36) {
-        ctx.fillRect(x, w.y + 16, 20, w.h - 26);
-      }
-      break;
-    }
-    case 'vault': {
-      const cx = w.x + w.w / 2;
-      const cy = w.y + w.h / 2;
-      const dial = Math.min(40, w.h / 2 - 14);
-      ctx.fillStyle = '#39424f';
-      ctx.fillRect(w.x, w.y, w.w, w.h);
-      ctx.strokeStyle = '#c9a227';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(w.x + 6, w.y + 6, w.w - 12, w.h - 12);
-      ctx.fillStyle = '#232a34';
-      ctx.beginPath();
-      ctx.arc(cx, cy, dial, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = '#c9a227';
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.arc(cx, cy, dial, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.arc(cx, cy, 12, 0, Math.PI * 2);
-      ctx.stroke();
-      break;
-    }
-    default: { // pillar
-      ctx.fillStyle = '#98a2ad';
-      ctx.fillRect(w.x, w.y, w.w, w.h);
-      ctx.fillStyle = '#7d8794';
-      ctx.fillRect(w.x, w.y, w.w, 6);
-      ctx.fillRect(w.x, w.y + w.h - 6, w.w, 6);
-      break;
-    }
+  } else if (w.kind === 'vault') {
+    const cx = w.x + w.w / 2;
+    const cy = w.y + w.h / 2;
+    const dial = Math.min(40, w.h / 2 - 14);
+    ctx.fillStyle = '#39424f';
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.strokeStyle = '#c9a227';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(w.x + 6, w.y + 6, w.w - 12, w.h - 12);
+    ctx.fillStyle = '#232a34';
+    ctx.beginPath();
+    ctx.arc(cx, cy, dial, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#c9a227';
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, dial, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(cx, cy, 12, 0, Math.PI * 2);
+    ctx.stroke();
+  } else {
+    // pillar
+    ctx.fillStyle = '#98a2ad';
+    ctx.fillRect(w.x, w.y, w.w, w.h);
+    ctx.fillStyle = '#7d8794';
+    ctx.fillRect(w.x, w.y, w.w, 6);
+    ctx.fillRect(w.x, w.y + w.h - 6, w.w, 6);
   }
 }
 
 function paintLoot(ctx, loot) {
+  const { x, y } = loot;
   // The plinth the piece sits on; an empty plinth stays behind.
   ctx.fillStyle = loot.taken ? '#4c4438' : '#2f2a33';
-  ctx.fillRect(loot.x - 17, loot.y + 8, 34, 12);
+  ctx.fillRect(x - 17, y + 8, 34, 12);
   if (loot.taken) return;
-  const x = loot.x;
-  const y = loot.y;
-  switch (loot.kind) {
-    case 'gem': {
-      ctx.fillStyle = '#39c2d7';
-      poly(ctx, [[x, y - 13], [x + 10, y - 2], [x, y + 10], [x - 10, y - 2]]);
-      ctx.fillStyle = 'rgba(255,255,255,0.65)';
-      poly(ctx, [[x, y - 13], [x + 5, y - 2], [x - 5, y - 2]]);
-      break;
-    }
-    case 'painting': {
-      ctx.fillStyle = '#c9a227';
-      ctx.fillRect(x - 13, y - 12, 26, 20);
-      ctx.fillStyle = '#7a4a7e';
-      ctx.fillRect(x - 10, y - 9, 20, 14);
-      ctx.fillStyle = '#e8b4b8';
-      ctx.beginPath();
-      ctx.arc(x, y - 2, 4, 0, Math.PI * 2);
-      ctx.fill();
-      break;
-    }
-    case 'cash': {
-      ctx.fillStyle = '#2e7d4f';
-      ctx.fillRect(x - 12, y - 6, 24, 13);
-      ctx.fillStyle = '#43aa6d';
-      ctx.fillRect(x - 12, y - 11, 24, 6);
-      ctx.fillStyle = '#d9f2e2';
-      ctx.fillRect(x - 3, y - 4, 6, 6);
-      break;
-    }
-    case 'ledger': {
-      ctx.fillStyle = '#7a3b2e';
-      ctx.fillRect(x - 11, y - 13, 22, 24);
-      ctx.fillStyle = '#c9a227';
-      ctx.fillRect(x - 11, y - 3, 22, 4);
-      break;
-    }
-    default: { // crown
-      ctx.fillStyle = '#f2c230';
-      poly(ctx, [
-        [x - 13, y + 8], [x - 13, y - 8], [x - 6, y - 1], [x, y - 11],
-        [x + 6, y - 1], [x + 13, y - 8], [x + 13, y + 8],
-      ]);
-      ctx.fillStyle = '#c0392b';
-      ctx.beginPath();
-      ctx.arc(x, y + 2, 3, 0, Math.PI * 2);
-      ctx.fill();
-      break;
-    }
+  if (loot.kind === 'gem') {
+    fillPoly(ctx, [[x, y - 13], [x + 10, y - 2], [x, y + 10], [x - 10, y - 2]], '#39c2d7');
+    fillPoly(ctx, [[x, y - 13], [x + 5, y - 2], [x - 5, y - 2]], 'rgba(255,255,255,0.65)');
+  } else if (loot.kind === 'painting') {
+    ctx.fillStyle = '#c9a227';
+    ctx.fillRect(x - 13, y - 12, 26, 20);
+    ctx.fillStyle = '#7a4a7e';
+    ctx.fillRect(x - 10, y - 9, 20, 14);
+    ctx.fillStyle = '#e8b4b8';
+    ctx.beginPath();
+    ctx.arc(x, y - 2, 4, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (loot.kind === 'cash') {
+    ctx.fillStyle = '#2e7d4f';
+    ctx.fillRect(x - 12, y - 6, 24, 13);
+    ctx.fillStyle = '#43aa6d';
+    ctx.fillRect(x - 12, y - 11, 24, 6);
+    ctx.fillStyle = '#d9f2e2';
+    ctx.fillRect(x - 3, y - 4, 6, 6);
+  } else if (loot.kind === 'ledger') {
+    ctx.fillStyle = '#7a3b2e';
+    ctx.fillRect(x - 11, y - 13, 22, 24);
+    ctx.fillStyle = '#c9a227';
+    ctx.fillRect(x - 11, y - 3, 22, 4);
+  } else {
+    // crown
+    fillPoly(ctx, [
+      [x - 13, y + 8], [x - 13, y - 8], [x - 6, y - 1], [x, y - 11],
+      [x + 6, y - 1], [x + 13, y - 8], [x + 13, y + 8],
+    ], '#f2c230');
+    ctx.fillStyle = '#c0392b';
+    ctx.beginPath();
+    ctx.arc(x, y + 2, 3, 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 
@@ -185,7 +175,7 @@ function paintGuard(ctx, guard) {
     ctx.arc(guard.x + 15, guard.y - 19, 9, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#fff';
-    ctx.font = `800 14px ${FONT}`;
+    setFont(ctx, 800, 14);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('!', guard.x + 15, guard.y - 18);
@@ -249,32 +239,17 @@ function paintVan(ctx, exit, ready) {
   ctx.fillStyle = ready ? '#39c26d' : '#e8b93c';
   ctx.fillRect(exit.x + 8, exit.y + 8, 10, exit.h - 16);
   ctx.fillStyle = '#ffffff';
-  ctx.font = `700 13px ${FONT}`;
+  setFont(ctx, 700, 13);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText('VAN', exit.x + exit.w / 2 - 8, exit.y + exit.h / 2);
 }
 
-function paintHud(ctx, game, now) {
-  ctx.fillStyle = '#14100e';
-  ctx.fillRect(0, 0, VIEW_W, HUD_H);
-  ctx.fillStyle = '#f2c230';
-  ctx.font = `800 32px ${FONT}`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('THE AURELIA HEIST', 24, 33);
-  ctx.fillStyle = '#e8ded2';
-  ctx.font = `600 19px ${FONT}`;
-  ctx.fillText(`Room ${game.roomIndex + 1} of ${ROOMS.length} — ${game.room.name}`, 24, 67);
-  ctx.fillText(`Loot ${game.bagged} · Score ${game.score}`, 470, 33);
-  const prize = game.room.loots.find((l) => l.prize);
-  ctx.fillStyle = game.hasPrize() ? '#39c26d' : '#e8b93c';
-  ctx.fillText(game.hasPrize() ? 'Prize bagged — reach the van!' : `Prize inside: ${prize ? prize.name : ''}`, 470, 67);
-
-  // The ALARM meter: the number the whole job hangs on.
+/** The ALARM meter in the header: the number the whole job hangs on. */
+function paintAlarmMeter(ctx, game) {
   const alarm = game.alarm;
   ctx.fillStyle = '#ffffff';
-  ctx.font = `700 20px ${FONT}`;
+  setFont(ctx, 700, 20);
   ctx.textAlign = 'right';
   ctx.fillText('ALARM', 1006, 33);
   ctx.fillStyle = '#2c2622';
@@ -282,25 +257,45 @@ function paintHud(ctx, game, now) {
   ctx.fillStyle = alarm > 70 ? '#e03131' : alarm > 40 ? '#ff8f2e' : '#39c26d';
   ctx.fillRect(1027, 21, 226 * (alarm / 100), 22);
   ctx.fillStyle = '#ffffff';
-  ctx.font = `800 22px ${FONT}`;
+  setFont(ctx, 800, 22);
   ctx.fillText(`${Math.floor(alarm)}%`, 1256, 68);
   ctx.fillStyle = '#b8a894';
-  ctx.font = `500 15px ${FONT}`;
-  ctx.fillText('WASD / arrows · stand still by loot to bag it', 1256, 84);
+  setFont(ctx, 500, 15);
+  ctx.fillText('WASD or arrows to move · stand still by loot to bag it', 1256, 84);
+}
 
-  if (game.notice && game.phase === 'play') {
-    ctx.font = `600 19px ${FONT}`;
-    const width = ctx.measureText(game.notice).width + 36;
-    ctx.fillStyle = 'rgba(16, 12, 10, 0.85)';
-    ctx.beginPath();
-    ctx.roundRect((VIEW_W - width) / 2, HUD_H + FIELD_H - 46, width, 34, 17);
-    ctx.fill();
-    ctx.fillStyle = '#f5ead6';
-    ctx.textAlign = 'center';
-    ctx.fillText(game.notice, VIEW_W / 2, HUD_H + FIELD_H - 28);
-  }
+function paintNotice(ctx, game) {
+  if (!game.notice || game.phase !== 'play') return;
+  setFont(ctx, 600, 19);
+  const width = ctx.measureText(game.notice).width + 36;
+  ctx.fillStyle = 'rgba(16, 12, 10, 0.85)';
+  ctx.beginPath();
+  ctx.roundRect((VIEW_W - width) / 2, HUD_H + FIELD_H - 46, width, 34, 17);
+  ctx.fill();
+  ctx.fillStyle = '#f5ead6';
+  ctx.textAlign = 'center';
+  ctx.fillText(game.notice, VIEW_W / 2, HUD_H + FIELD_H - 28);
+}
+
+function paintHud(ctx, game, now) {
+  ctx.fillStyle = '#14100e';
+  ctx.fillRect(0, 0, VIEW_W, HUD_H);
+  ctx.fillStyle = '#f2c230';
+  setFont(ctx, 800, 32);
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('THE AURELIA HEIST', 24, 33);
+  ctx.fillStyle = '#e8ded2';
+  setFont(ctx, 600, 19);
+  ctx.fillText(`Room ${game.roomIndex + 1} of ${ROOMS.length} — ${game.room.name}`, 24, 67);
+  ctx.fillText(`Loot ${game.bagged} · Score ${game.score}`, 470, 33);
+  const prize = game.room.loots.find((l) => l.prize);
+  ctx.fillStyle = game.hasPrize() ? '#39c26d' : '#e8b93c';
+  ctx.fillText(game.hasPrize() ? 'Prize bagged — reach the van!' : `Prize inside: ${prize ? prize.name : ''}`, 470, 67);
+  paintAlarmMeter(ctx, game);
+  paintNotice(ctx, game);
   // A red pulse at the edges when the alarm is about to trip.
-  if (game.phase === 'play' && alarm > 72 && Math.sin(now / 130) > -0.2) {
+  if (game.phase === 'play' && game.alarm > 72 && Math.sin(now / 130) > -0.2) {
     ctx.strokeStyle = 'rgba(224, 49, 49, 0.5)';
     ctx.lineWidth = 10;
     ctx.strokeRect(5, HUD_H + 5, VIEW_W - 10, FIELD_H - 10);
@@ -311,12 +306,12 @@ function paintOverlay(ctx, title, lines, colour) {
   ctx.fillStyle = 'rgba(12, 9, 8, 0.8)';
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
   ctx.fillStyle = colour;
-  ctx.font = `800 60px ${FONT}`;
+  setFont(ctx, 800, 60);
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText(title, VIEW_W / 2, 262);
   ctx.fillStyle = '#ffffff';
-  ctx.font = `600 24px ${FONT}`;
+  setFont(ctx, 600, 24);
   lines.forEach((line, i) => ctx.fillText(line, VIEW_W / 2, 338 + i * 38));
 }
 
@@ -330,12 +325,12 @@ export function draw(ctx, game, now) {
   paintFloor(ctx);
   // Cones first, under everything: guards warm amber, cameras cold blue.
   for (const guard of game.guards) {
-    ctx.fillStyle = guard.seeing ? 'rgba(255, 120, 60, 0.34)' : 'rgba(255, 214, 110, 0.20)';
-    poly(ctx, guard.cone(room.walls, bounds));
+    const style = guard.seeing ? 'rgba(255, 120, 60, 0.34)' : 'rgba(255, 214, 110, 0.20)';
+    fillCone(ctx, guard, room.walls, bounds, style);
   }
   for (const camera of game.cameras) {
-    ctx.fillStyle = camera.seeing ? 'rgba(255, 90, 90, 0.30)' : 'rgba(150, 190, 255, 0.16)';
-    poly(ctx, camera.cone(room.walls, bounds));
+    const style = camera.seeing ? 'rgba(255, 90, 90, 0.30)' : 'rgba(150, 190, 255, 0.16)';
+    fillCone(ctx, camera, room.walls, bounds, style);
   }
   room.walls.forEach((w, i) => paintWall(ctx, w, i));
   // Laser lines, with their emitter blocks at each end.
@@ -369,7 +364,7 @@ export function draw(ctx, game, now) {
       ctx.arc(loot.x, loot.y, 22 * pulse, 0, Math.PI * 2);
       ctx.stroke();
       ctx.fillStyle = '#8a6d1d';
-      ctx.font = `800 12px ${FONT}`;
+      setFont(ctx, 800, 12);
       ctx.textAlign = 'center';
       ctx.fillText('PRIZE', loot.x, loot.y - 32);
     }
@@ -382,7 +377,7 @@ export function draw(ctx, game, now) {
 
   if (game.phase === 'title') {
     paintOverlay(ctx, 'THE AURELIA HEIST', [
-      'One thief, three rooms, and every eye in the building.',
+      'One thief, three rooms, and every eye in the house on you.',
       'Bag each room\'s prize — plus whatever else glitters — and reach the van.',
       'Guards and cameras feed the ALARM meter; at 100% the job is blown.',
       'Move with WASD or the arrow keys. Stand still beside loot to bag it.',
